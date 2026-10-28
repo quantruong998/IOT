@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart Greenhouse</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="login-overlay" class="login-overlay" hidden>
+        <form id="login-form" class="login-box">
+            <h3>🌱 GREENHOUSE</h3>
+            <p>Đăng nhập để tiếp tục</p>
+            <input id="login-user" type="text" placeholder="Tài khoản" autocomplete="username" required>
+            <input id="login-pass" type="password" placeholder="Mật khẩu" autocomplete="current-password" required>
+            <div id="login-error" class="login-error" hidden></div>
+            <button type="submit">Đăng nhập</button>
+        </form>
+    </div>
+
+    <aside class="sidebar">
+        <h3>🌱 GREENHOUSE</h3>
+        <button class="nav-btn active" data-page="dashboard">Dashboard</button>
+        <button class="nav-btn" data-page="data-sensor">Data Sensor</button>
+        <button class="nav-btn" data-page="action-history">Action History</button>
+        <button class="nav-btn" data-page="profile">Profile</button>
+        <div class="sidebar-user">
+            <span>👤 <strong id="current-user">quantruong</strong></span>
+            <button id="logout-btn" type="button">Đăng xuất</button>
+        </div>
+    </aside>
+
+    <main class="content">
+        
+        <section id="dashboard" class="page active-page">
+            <h2>Dashboard</h2>
+            
+            <div class="sensor-cards">
+                <div class="sensor-card temperature-card">
+                    <div class="sensor-heading">
+                        <span class="sensor-icon">🌡️</span>
+                        <h3>Nhiệt độ</h3>
+                    </div>
+                    <h2 id="nhiet-do">-- °C</h2>
+                </div>
+                <div class="sensor-card humidity-card">
+                    <div class="sensor-heading">
+                        <span class="sensor-icon">💧</span>
+                        <h3>Độ ẩm</h3>
+                    </div>
+                    <h2 id="do-am">-- %</h2>
+                </div>
+                <div class="sensor-card light-card">
+                    <div class="sensor-heading">
+                        <span class="sensor-icon">☀️</span>
+                        <h3>Ánh sáng</h3>
+                    </div>
+                    <h2 id="anh-sang">--</h2>
+                </div>
+            </div>
+
+            <div class="device-box">
+                <div class="device-title">
+                    <h3>Điều khiển thiết bị</h3>
+                </div>
+                <div class="device-list">
+                    <div class="device-row" id="card-led01">
+                        <div class="device-identity">
+                            <span class="device-bulb">●</span>
+                            <strong>LED01</strong>
+                        </div>
+                        <span id="state-led01" class="state-off">TẮT</span>
+                        <button id="btn-led01" type="button">Bật LED01</button>
+                    </div>
+                    <div class="device-row" id="card-led02">
+                        <div class="device-identity">
+                            <span class="device-bulb">●</span>
+                            <strong>LED02</strong>
+                        </div>
+                        <span id="state-led02" class="state-off">TẮT</span>
+                        <button id="btn-led02" type="button">Bật LED02</button>
+                    </div>
+                    <div class="device-row" id="card-led03">
+                        <div class="device-identity">
+                            <span class="device-bulb">●</span>
+                            <strong>LED03</strong>
+                        </div>
+                        <span id="state-led03" class="state-off">TẮT</span>
+                        <button id="btn-led03" type="button">Bật LED03</button>
+                    </div>
+                </div>
+                <div class="all-controls">
+                    <button id="btn-all-on" type="button">Bật tất cả</button>
+                    <button id="btn-all-off" type="button">Tắt tất cả</button>
+                </div>
+            </div>
+
+            <div class="chart-box">
+                <div class="chart-header">
+                    <h3>Biểu đồ cảm biến</h3>
+                    <div class="chart-controls">
+                        <label for="chart-count"><strong>Số bản ghi:</strong></label>
+                        <select id="chart-count">
+                            <option value="7">7</option>
+                            <option value="14" selected>14</option>
+                            <option value="30">30</option>
+                            <option value="36">36</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="chart-legend">
+                    <span><i class="legend-line temp-color"></i><strong>Nhiệt độ (°C)</strong></span>
+                    <span><i class="legend-line hum-color"></i><strong>Độ ẩm (%)</strong></span>
+                    <span><i class="legend-line light-color"></i><strong>Ánh sáng (ADC)</strong></span>
+                </div>
+                <div class="chart-area" id="chart-area">
+                    <canvas id="sensor-chart"></canvas>
+                    <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="data-sensor" class="page">
+            <h2>Dữ liệu Cảm biến</h2>
+            
+            <div class="search-box">
+                <select id="search-field">
+                    <option value="all">Tất cả thông số</option>
+                    <option value="temperature">Nhiệt độ (°C)</option>
+                    <option value="humidity">Độ ẩm (%)</option>
+                    <option value="light">Ánh sáng (ADC)</option>
+                    <option value="time">Ngày ghi nhận</option>
+                </select>
+                <input type="number" id="search-value" step="any" placeholder="Nhập nhiệt độ (°C), độ ẩm (%) hoặc ánh sáng (ADC)...">
+                <button id="search-btn" type="button">Lọc</button>
+                <button id="clear-btn" type="button">Xóa lọc</button>
+            </div>
+
+            <div class="table-box">
+                <table>
+                    <thead>
+                        <tr>
+                            <th><button class="sort-btn" data-sort="id">ID <span class="sort-icon">↕</span></button></th>
+                            <th><button class="sort-btn" data-sort="temperature">Nhiệt độ (°C) <span class="sort-icon">↕</span></button></th>
+                            <th><button class="sort-btn" data-sort="humidity">Độ ẩm (%) <span class="sort-icon">↕</span></button></th>
+                            <th><button class="sort-btn" data-sort="light">Ánh sáng <span class="sort-icon">↕</span></button></th>
+                            <th><button class="sort-btn" data-sort="time">Thời gian <span class="sort-icon">↕</span></button></th>
+                        </tr>
+                    </thead>
+                    <tbody id="sensor-body"></tbody>
+                </table>
+            </div>
+
+            <div class="history-footer">
+                <strong id="sensor-result-range">0 - 0 / 0</strong>
+                <div class="history-pagination">
+                    <label for="sensor-page-size"><strong>Dòng/trang:</strong></label>
+                    <select id="sensor-page-size">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                    </select>
+                    <button id="sensor-prev">Trước</button>
+                    <strong id="sensor-page-info">1 / 1</strong>
+                    <button id="sensor-next">Sau</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="action-history" class="page">
+            <h2>Lịch sử thao tác</h2>
+
+            <div class="history-filters">
+                <select id="history-device">
+                    <option value="">Thiết bị: Tất cả</option>
+                    <option value="LED01">LED01</option>
+                    <option value="LED02">LED02</option>
+                    <option value="LED03">LED03</option>
+                </select>
+
+                <select id="history-action">
+                    <option value="">Hành động: Tất cả</option>
+                    <option value="ON">ON</option>
+                    <option value="OFF">OFF</option>
+                </select>
+
+                <select id="history-status">
+                    <option value="">Kết quả: Tất cả</option>
+                    <option value="SUCCESS">SUCCESS</option>
+                    <option value="FAILED">FAILED</option>
+                </select>
+
+                <input id="history-date" type="text" placeholder="Nhập vào thời gian (Năm/Tháng/Ngày)...">
+
+                <button id="history-filter-btn" type="button">Lọc</button>
+                <button id="history-clear-btn" type="button">Xóa lọc</button>
+            </div>
+
+            <div class="history-table-box">
+                <table class="history-table">
+                    <thead>
+                        <tr>
+                            <th><button class="history-sort" data-history-sort="id">ID <span class="history-arrow">↕</span></button></th>
+                            <th><button class="history-sort" data-history-sort="device">Thiết bị <span class="history-arrow">↕</span></button></th>
+                            <th><button class="history-sort" data-history-sort="action">Hành động <span class="history-arrow">↕</span></button></th>
+                            <th><button class="history-sort" data-history-sort="status">Kết quả <span class="history-arrow">↕</span></button></th>
+                            <th><button class="history-sort" data-history-sort="time">Thời gian <span class="history-arrow">↕</span></button></th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-body"></tbody>
+                </table>
+            </div>
+
+            <div class="history-footer">
+                <strong id="history-result-count">0 bản ghi</strong>
+                <div class="history-pagination">
+                    <label for="history-page-size"><strong>Dòng/trang:</strong></label>
+                    <select id="history-page-size">
+                        <option value="5">5</option>
+                        <option value="10" selected>10</option>
+                        <option value="20">20</option>
+                    </select>
+                    <button id="history-prev">Trước</button>
+                    <strong id="history-page-info">1 / 1</strong>
+                    <button id="history-next">Sau</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="profile" class="page">
+            <h2>Hồ sơ & Tài nguyên</h2>
+            <div class="profile-container">
+                <div class="profile-card">
+                    <div class="profile-header">
+                        <div class="profile-avatar">Đ</div>
+                        <h3>Đặng Quân Trường</h3>
+                    </div>
+                    <div class="profile-info">
+                        <div class="profile-info-row">
+                            <span>Họ và tên</span>
+                            <strong>Đặng Quân Trường</strong>
+                        </div>
+                        <div class="profile-info-row">
+                            <span>Mã sinh viên</span>
+                            <strong>B23DCAT306</strong>
+                        </div>
+                        <div class="profile-info-row">
+                            <span>Chuyên ngành</span>
+                            <strong>An toàn thông tin</strong>
+                        </div>
+                        <div class="profile-info-row">
+                            <span>Giảng viên</span>
+                            <strong>TS. Nguyễn Quốc Uy</strong>
+                        </div>
+                        <div class="profile-info-row">
+                            <span>Học kỳ</span>
+                            <strong>HK1 - 2026-2027</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="profile-resources">
+                    <h3>Liên kết tài nguyên</h3>
+                    <div class="resource-grid">
+                        <div class="resource-item">
+                            <div class="resource-icon github">💻</div>
+                            <div class="resource-text"><strong>Source Code</strong></div>
+                        </div>
+                        <div class="resource-item">
+                            <div class="resource-icon figma">🎨</div>
+                            <div class="resource-text"><strong>Thiết kế Figma</strong></div>
+                        </div>
+                        <div class="resource-item">
+                            <div class="resource-icon api">&lt;/&gt;</div>
+                            <div class="resource-text"><strong>Tài liệu API</strong></div>
+                        </div>
+                        <div class="resource-item">
+                            <div class="resource-icon report">📄</div>
+                            <div class="resource-text"><strong>Báo cáo PDF</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
