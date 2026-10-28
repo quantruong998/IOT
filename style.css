@@ -543,6 +543,10 @@ tr:hover {
 }
 
 .resource-item {
+    color: inherit;
+    text-decoration: none;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -550,6 +554,11 @@ tr:hover {
     border: 1px solid #eee;
     border-radius: 8px;
     background: #fafafa;
+}
+
+.resource-item:hover {
+    border-color: #2878ba;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 .resource-icon {
