@@ -34,6 +34,14 @@ const TOPIC_RESPONSE = "device_response";
 
 let pendingResponse = null;
 
+// Mạch được coi là mất kết nối nếu quá ngần này ms không gửi dữ liệu cảm biến
+const NGUONG_MAT_KET_NOI_MS = 5000;
+let lanCuoiNhanDuLieu = 0;
+
+function machDangKetNoi() {
+    return Date.now() - lanCuoiNhanDuLieu <= NGUONG_MAT_KET_NOI_MS;
+}
+
 client.on('connect', () => {
     console.log("Connected to MQTT Broker!");
     client.subscribe([TOPIC_SENSOR, TOPIC_RESPONSE]);
@@ -53,6 +61,7 @@ client.on('message', (topic, payload) => {
 
         // 1. Nhận dữ liệu cảm biến -> Lưu vào SQLite
         if (topic === TOPIC_SENSOR) {
+            lanCuoiNhanDuLieu = Date.now();
             const timeNow = getFormattedTime();
             db.run(`INSERT INTO sensor_data (device_id, temperature, humidity, light, time) VALUES (?, ?, ?, ?, ?)`,
                 [data.device_id, data.temperature, data.humidity, data.light, timeNow]);
@@ -138,6 +147,11 @@ app.get('/api/login', (req, res) => {
     });
 });
 
+// 1d. Trạng thái kết nối của mạch
+app.get('/api/device/status', verifyJWT, (req, res) => {
+    res.json({ connected: machDangKetNoi() });
+});
+
 // 2. API Dashboard
 app.get('/api/dashboard', verifyJWT, (req, res) => {
     const limitCount = parseInt(req.query.limit) || 14;
@@ -181,25 +195,29 @@ app.post('/api/device/control', verifyJWT, (req, res) => {
         const timeoutTimer = setTimeout(() => {
             if (pendingResponse) {
                 const failTime = getFormattedTime();
+                // Mạch đã rút/mất kết nối -> PENDING (chờ), còn mạch online mà không phản hồi -> FAILED
+                const trangThaiLoi = machDangKetNoi() ? "FAILED" : "PENDING";
 
                 // NẾU TIMEOUT VỚI ALL_LED: LƯU FAILED CHO TỪNG ĐÈN RIÊNG BIỆT
                 if (device === "ALL_LED") {
                     DANH_SACH_LED.forEach(tenDen => {
                         db.run(`INSERT INTO action_history (device_id, device, action, status, time) VALUES (?, ?, ?, ?, ?)`,
-                            ["ESP8266-01", tenDen, action, "FAILED", failTime]);
+                            ["ESP8266-01", tenDen, action, trangThaiLoi, failTime]);
                     });
                 } else {
                     db.run(`INSERT INTO action_history (device_id, device, action, status, time) VALUES (?, ?, ?, ?, ?)`,
-                        ["ESP8266-01", device, action, "FAILED", failTime]);
+                        ["ESP8266-01", device, action, trangThaiLoi, failTime]);
                 }
 
                 // TRẢ VỀ CHO POSTMAN/WEB VẪN GIỮ NGUYÊN "ALL_LED"
                 resolve({
                     device, // Vẫn là "ALL_LED"
                     action,
-                    status: "FAILED",
+                    status: trangThaiLoi,
                     time: failTime,
-                    message: "Lỗi: Không kết nối được với phần cứng (Timeout sau 5 giây)!"
+                    message: trangThaiLoi === "PENDING"
+                        ? "Mạch đang ngắt kết nối, lệnh được lưu ở trạng thái PENDING!"
+                        : "Lỗi: Không kết nối được với phần cứng (Timeout sau 5 giây)!"
                 });
                 pendingResponse = null;
             }
@@ -213,19 +231,108 @@ app.post('/api/device/control', verifyJWT, (req, res) => {
     });
 });
 
-// 4. API Data Sensor
-app.get('/api/sensors', verifyJWT, (req, res) => {
-    db.all(`SELECT id, device_id, temperature, humidity, light, time FROM sensor_data ORDER BY id DESC`, [], (err, rows) => {
+// ================= PHÂN TRANG / TÌM KIẾM / SẮP XẾP DÙNG CHUNG =================
+// Nếu request KHÔNG có page/limit -> trả mảng đầy đủ (để web cũ vẫn chạy).
+// Nếu có page hoặc limit -> trả {data, pagination} với đủ trang trước/sau.
+function xuLyDanhSach(req, res, { bang, cotChoPhep, cotMacDinh, boLoc }) {
+    const q = req.query;
+    const coPhanTrang = q.page !== undefined || q.limit !== undefined;
+
+    const where = [];
+    const params = [];
+    boLoc(q, where, params);
+    const whereSql = where.length ? " WHERE " + where.join(" AND ") : "";
+
+    const sortBy = cotChoPhep.includes(q.sortBy) ? q.sortBy : cotMacDinh;
+    const order = String(q.order).toLowerCase() === "asc" ? "ASC" : "DESC";
+    const orderSql = ` ORDER BY ${sortBy} ${order}, id ${order}`;
+
+    if (!coPhanTrang) {
+        return db.all(`SELECT * FROM ${bang}${whereSql}${orderSql}`, params, (err, rows) => {
+            if (err) return res.status(500).json({ error: err.message });
+            res.json(rows);
+        });
+    }
+
+    const limit = Math.min(Math.max(parseInt(q.limit) || 10, 1), 100);
+    let page = Math.max(parseInt(q.page) || 1, 1);
+
+    db.get(`SELECT COUNT(*) AS total FROM ${bang}${whereSql}`, params, (err, row) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
+        const total = row.total;
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        page = Math.min(page, totalPages);
+
+        db.all(`SELECT * FROM ${bang}${whereSql}${orderSql} LIMIT ? OFFSET ?`,
+            [...params, limit, (page - 1) * limit], (err2, rows) => {
+                if (err2) return res.status(500).json({ error: err2.message });
+                res.json({
+                    data: rows,
+                    pagination: {
+                        page,
+                        limit,
+                        total,
+                        totalPages,
+                        hasPrev: page > 1,
+                        hasNext: page < totalPages,
+                        prevPage: page > 1 ? page - 1 : null,   // API trang trước
+                        nextPage: page < totalPages ? page + 1 : null, // API trang sau
+                        firstPage: 1,
+                        lastPage: totalPages
+                    }
+                });
+            });
+    });
+}
+
+// 4. API Data Sensor
+// GET /api/sensors?page=1&limit=10&field=all|temperature|humidity|light|time|device_id&search=...&sortBy=id&order=desc
+app.get('/api/sensors', verifyJWT, (req, res) => {
+    xuLyDanhSach(req, res, {
+        bang: "sensor_data",
+        cotChoPhep: ["id", "device_id", "temperature", "humidity", "light", "time"],
+        cotMacDinh: "id",
+        boLoc: (q, where, params) => {
+            const tuKhoa = (q.search || "").toString().trim();
+            if (tuKhoa === "") return;
+            const field = q.field || "all";
+            const so = Number(tuKhoa);
+            if (field === "time") {
+                where.push("time LIKE ?");
+                params.push(tuKhoa + "%");
+            } else if (field === "device_id") {
+                where.push("device_id LIKE ?");
+                params.push("%" + tuKhoa + "%");
+            } else if (["temperature", "humidity", "light"].includes(field)) {
+                where.push(`${field} = ?`);
+                params.push(so);
+            } else {
+                where.push("(temperature = ? OR humidity = ? OR light = ?)");
+                params.push(so, so, so);
+            }
+        }
     });
 });
 
 // 5. API Action History
+// GET /api/history?page=1&limit=10&device=LED01&action=ON&status=SUCCESS|FAILED|PENDING&date=2026/10/29&search=...&sortBy=id&order=desc
 app.get('/api/history', verifyJWT, (req, res) => {
-    db.all(`SELECT * FROM action_history ORDER BY id DESC`, [], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
+    xuLyDanhSach(req, res, {
+        bang: "action_history",
+        cotChoPhep: ["id", "device_id", "device", "action", "status", "time"],
+        cotMacDinh: "id",
+        boLoc: (q, where, params) => {
+            if (q.device) { where.push("device = ?"); params.push(q.device); }
+            if (q.action) { where.push("action = ?"); params.push(q.action); }
+            if (q.status) { where.push("status = ?"); params.push(q.status); }
+            if (q.date)   { where.push("time LIKE ?"); params.push(q.date.toString().trim() + "%"); }
+            const tuKhoa = (q.search || "").toString().trim();
+            if (tuKhoa !== "") {
+                where.push("(device LIKE ? OR action LIKE ? OR status LIKE ? OR time LIKE ?)");
+                const m = "%" + tuKhoa + "%";
+                params.push(m, m, m, m);
+            }
+        }
     });
 });
 

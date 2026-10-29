@@ -4,13 +4,65 @@ let jwtToken = localStorage.getItem("iot_jwt_token") || "";
 // Khởi tạo mảng dữ liệu
 let sensorData = [];
 let tatCaLichSu = [];
+let banChupCamBien = [];   // dữ liệu bảng Data Sensor: chỉ lấy lúc đăng nhập
+let banChupLichSu = [];    // dữ liệu bảng Action History: chỉ lấy lúc đăng nhập
 
 let camBienDangHienThi = null;
 let trangThaiDen = { LED01: false, LED02: false, LED03: false };
 let dangDieuKhien = false;
+let machDangKetNoi = null;   // null = chưa biết, true/false = trạng thái mạch
+
+function hienCanhBaoMatKetNoi(hien) {
+    let hop = document.getElementById("device-offline-alert");
+    if (!hop) {
+        hop = document.createElement("div");
+        hop.id = "device-offline-alert";
+        hop.className = "device-offline-alert";
+        hop.innerHTML = '<span class="offline-icon">⚠️</span>' +
+            '<div><strong>Đã ngắt kết nối với mạch!</strong>' +
+            '<p>Không nhận được dữ liệu từ ESP8266. Hãy kiểm tra nguồn / dây cắm. Các lệnh điều khiển sẽ được ghi ở trạng thái PENDING.</p></div>' +
+            '<button type="button" aria-label="Đóng">✕</button>';
+        hop.querySelector("button").addEventListener("click", function() { hop.hidden = true; });
+        document.body.appendChild(hop);
+    }
+    hop.classList.toggle("restored", !hien);
+    if (hien) {
+        hop.querySelector("strong").textContent = "Đã ngắt kết nối với mạch!";
+        hop.querySelector("p").textContent = "Không nhận được dữ liệu từ ESP8266. Hãy kiểm tra nguồn / dây cắm. Các lệnh điều khiển sẽ được ghi ở trạng thái PENDING.";
+        hop.querySelector(".offline-icon").textContent = "⚠️";
+        hop.hidden = false;
+    } else {
+        hop.querySelector("strong").textContent = "Đã kết nối lại với mạch";
+        hop.querySelector("p").textContent = "Mạch đã hoạt động trở lại.";
+        hop.querySelector(".offline-icon").textContent = "✅";
+        hop.hidden = false;
+        setTimeout(function() { if (machDangKetNoi) hop.hidden = true; }, 3000);
+    }
+}
+
+async function kiemTraKetNoiMach() {
+    try {
+        const kq = await goiAPI("/device/status");
+        if (typeof kq.connected !== "boolean") return;
+        if (machDangKetNoi !== kq.connected) {
+            const lanDau = machDangKetNoi === null;
+            machDangKetNoi = kq.connected;
+            if (!kq.connected) {
+                hienCanhBaoMatKetNoi(true);
+                setTimeout(function() {
+                    alert("⚠️ Đã ngắt kết nối với mạch!\nKhông nhận được dữ liệu từ ESP8266, hãy kiểm tra nguồn / dây cắm.");
+                }, 50);
+            }
+            else if (!lanDau) hienCanhBaoMatKetNoi(false);
+        }
+    } catch (e) {
+        console.error("Lỗi kiểm tra kết nối mạch:", e);
+    }
+}
 
 // ================= 1. XÁC THỰC JWT & GỌI API =================
 let timerCapNhat = null;
+let timerKetNoi = null;
 
 function hienThiManHinhDangNhap(hien) {
     document.getElementById("login-overlay").hidden = !hien;
@@ -75,6 +127,31 @@ function chuyenThoiGian(chuoi) {
     const [hh, mm, ss] = gio.split(":").map(Number);
     return new Date(y, m - 1, d, hh, mm, ss).getTime();
 }
+
+function nutCopyNgay(time) {
+    return `<button type="button" class="copy-date-btn" data-date="${layNgayTuChuoi(time)}" title="Copy ngày">📋</button>`;
+}
+
+document.addEventListener("click", function(e) {
+    const nut = e.target.closest(".copy-date-btn");
+    if (!nut) return;
+    const ngay = nut.dataset.date;
+    const xong = function() {
+        nut.textContent = "✓";
+        setTimeout(function() { nut.textContent = "📋"; }, 1000);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(ngay).then(xong);
+    } else {
+        const o = document.createElement("textarea");
+        o.value = ngay;
+        document.body.appendChild(o);
+        o.select();
+        document.execCommand("copy");
+        o.remove();
+        xong();
+    }
+});
 
 function layNgayTuChuoi(time) {
     if (!time) return "";
@@ -215,7 +292,7 @@ async function xuLyDieuKhien(thietBiGuiLen, hanhDong) {
                 trangThaiDen[tenDen] = trangThaiMoi;
             });
         } else {
-            console.warn(`Thao tác ${thietBiGuiLen} (${hanhDong}) thất bại (FAILED).`);
+            console.warn(`Thao tác ${thietBiGuiLen} (${hanhDong}) chưa thực hiện được (${ketQua.status}).`);
         }
     } catch (err) {
         console.error("Lỗi: Không thể kết nối tới máy chủ Backend!", err);
@@ -445,7 +522,7 @@ function locCamBien(resetTrang = false) {
     const tuKhoa = document.getElementById("search-value").value.trim();
     const soCanTim = Number(tuKhoa);
 
-    duLieuDangLoc = sensorData.filter(function(item) {
+    duLieuDangLoc = banChupCamBien.filter(function(item) {
         if (tuKhoa === "") return true;
         if (loai === "time") return layNgayTuChuoi(item.time) === tuKhoa;
         if (loai === "all") {
@@ -515,7 +592,7 @@ function hienThiBangCamBien() {
                     <td>${item.temperature}</td>
                     <td>${item.humidity}</td>
                     <td>${item.light}</td>
-                    <td>${item.time}</td>
+                    <td>${item.time} ${nutCopyNgay(item.time)}</td>
                 </tr>
             `;
         });
@@ -556,7 +633,7 @@ function veBangLichSu() {
     const ketQua = document.getElementById("history-status").value;
     const ngay = document.getElementById("history-date").value.trim();
 
-    const danhSach = tatCaLichSu.filter(function(item) {
+    const danhSach = banChupLichSu.filter(function(item) {
         if (thietBi !== "" && item.device !== thietBi) return false;
         if (hanhDong !== "" && item.action !== hanhDong) return false;
         if (ketQua !== "" && item.status !== ketQua) return false;
@@ -595,7 +672,7 @@ function veBangLichSu() {
                     <td>${item.device}</td>
                     <td class="${classAction}">${item.action}</td>
                     <td class="${classStatus}">${item.status}</td>
-                    <td>${item.time}</td>
+                    <td>${item.time} ${nutCopyNgay(item.time)}</td>
                 </tr>
             `;
         });
@@ -660,7 +737,7 @@ document.getElementById("history-page-size").addEventListener("change", function
 });
 
 // ================= 8. ĐỒNG BỘ DỮ LIỆU TỪ BACKEND VỀ WEB =================
-async function taiDuLieuCamBien() {
+async function taiDuLieuCamBien(capNhatBang = false) {
     try {
         const danhSach = await goiAPI("/sensors");
         if (Array.isArray(danhSach)) {
@@ -671,20 +748,26 @@ async function taiDuLieuCamBien() {
             if (document.getElementById("dashboard").classList.contains("active-page")) {
                 veBieuDo();
             }
-            locCamBien(false);
+            if (capNhatBang) {
+                banChupCamBien = sensorData;
+                locCamBien(false);
+            }
         }
     } catch (e) {
         console.error("Lỗi tải dữ liệu cảm biến:", e);
     }
 }
 
-async function taiDuLieuLichSu() {
+async function taiDuLieuLichSu(capNhatBang = false) {
     try {
         const danhSach = await goiAPI("/history");
         if (Array.isArray(danhSach)) {
             tatCaLichSu = danhSach;
             capNhatTrangThaiDenTuLichSu();
-            veBangLichSu();
+            if (capNhatBang) {
+                banChupLichSu = danhSach;
+                veBangLichSu();
+            }
         }
     } catch (e) {
         console.error("Lỗi tải lịch sử:", e);
@@ -694,10 +777,15 @@ async function taiDuLieuLichSu() {
 // Khởi chạy hệ thống và cập nhật tự động mỗi 2 giây
 async function batDauCapNhat() {
     hienThiManHinhDangNhap(false);
-    await taiDuLieuCamBien();
-    await taiDuLieuLichSu();
+    await taiDuLieuCamBien(true);
+    await taiDuLieuLichSu(true);
+    machDangKetNoi = null;
+    await kiemTraKetNoiMach();
 
     clearInterval(timerCapNhat);
+    clearInterval(timerKetNoi);
+    timerKetNoi = setInterval(kiemTraKetNoiMach, 1000);
+
     timerCapNhat = setInterval(function() {
         taiDuLieuCamBien();
         if (!dangDieuKhien) {
