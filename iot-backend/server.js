@@ -19,7 +19,7 @@ let phienDangNhap = null;
 const DANH_SACH_LED = ["LED01", "LED02", "LED03"];
 
 // ================= THÔNG TIN MQTT BROKER =================
-const mqttUrl = 'mqtt://192.168.0.103:2000'; // Đổi đúng IP máy tính của bạn
+const mqttUrl = 'mqtt://172.20.10.4:2000'; // Đổi đúng IP máy tính của bạn
 const mqttOptions = {
     clientId: 'NodeJS_Backend_' + Math.random().toString(16).substring(2, 8),
     username: 'quantruong',
@@ -142,7 +142,7 @@ app.get('/api/login', (req, res) => {
 app.get('/api/dashboard', verifyJWT, (req, res) => {
     const limitCount = parseInt(req.query.limit) || 14;
 
-    db.all(`SELECT * FROM sensor_data ORDER BY id DESC LIMIT ?`, [limitCount], (err, chartRows) => {
+    db.all(`SELECT id, device_id, temperature, humidity, light, time FROM sensor_data ORDER BY id DESC LIMIT ?`, [limitCount], (err, chartRows) => {
         if (err) return res.status(500).json({ error: err.message });
 
         db.all(`SELECT device, action FROM action_history WHERE status = 'SUCCESS' GROUP BY device ORDER BY id DESC`, [], (err, deviceRows) => {
@@ -215,7 +215,7 @@ app.post('/api/device/control', verifyJWT, (req, res) => {
 
 // 4. API Data Sensor
 app.get('/api/sensors', verifyJWT, (req, res) => {
-    db.all(`SELECT * FROM sensor_data ORDER BY id DESC`, [], (err, rows) => {
+    db.all(`SELECT id, device_id, temperature, humidity, light, time FROM sensor_data ORDER BY id DESC`, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
